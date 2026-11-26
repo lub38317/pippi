@@ -396,6 +396,28 @@ li.editing .t-go{display:none}
   body[data-tab="memo"] #mainCol{display:none}
   body[data-tab="memo"] #memoPanel{display:block;padding-top:4px}
 }
+
+/* ---------- 폰 알람 (.ics) ---------- */
+.bell-btn{height:26px;padding:0 8px;border-radius:99px;border:1px solid #d8ecdf;background:#f1f9f4;color:#3f7a55;flex:none;display:flex;align-items:center;justify-content:center;gap:2px;font-size:10.5px;font-weight:800;letter-spacing:-.01em;line-height:1;white-space:nowrap;transition:background .15s,border-color .15s,transform .12s}
+.bell-btn:active{background:var(--green-soft);border-color:var(--green-line);transform:scale(.95)}
+li.editing .bell-btn{display:none}
+.goal-actions{flex-wrap:wrap}
+.goal-actions button[data-goal-act="weekly"]{background:var(--green-soft);color:var(--green-deep)}
+.goal-actions button[data-goal-act="alarm"]{background:#fff;border:1px solid var(--green-line);color:var(--green-deep)}
+
+/* ---------- 마감 임박 배너 ---------- */
+.due-banner{max-width:430px;margin:0 auto;padding:0 18px}
+.due-banner-in{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:linear-gradient(135deg,#fff4e3,#ffe8cb);border:1px solid #f0cfa1;border-radius:16px;padding:10px 13px 10px 12px;margin-bottom:9px;box-shadow:0 10px 24px -18px rgba(180,110,20,.95);animation:duePulse 2.6s ease-in-out infinite}
+.due-banner .ico{font-size:17px;flex:none;line-height:1}
+.due-banner .bd{flex:1;min-width:0}
+.due-banner .t1{display:block;font-size:9.5px;font-weight:800;letter-spacing:.1em;color:#9a5a15}
+.due-banner .t2{display:block;font-size:13px;font-weight:700;color:#5b3a12;line-height:1.34;letter-spacing:-.01em;word-break:keep-all;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.due-banner .left{flex:none;font-size:12.5px;font-weight:800;color:#9a5a15;font-variant-numeric:tabular-nums;padding-left:2px}
+.due-banner.hot .due-banner-in{background:linear-gradient(135deg,#ffe6de,#ffd2c6);border-color:#ecb2a3;box-shadow:0 10px 24px -16px rgba(170,70,40,.95)}
+.due-banner.hot .t1,.due-banner.hot .left{color:#a3402b}
+.due-banner.hot .t2{color:#6b2a1a}
+@keyframes duePulse{0%,100%{box-shadow:0 10px 24px -18px rgba(180,110,20,.95)}50%{box-shadow:0 12px 26px -12px rgba(200,120,20,.6)}}
+@media (prefers-reduced-motion: reduce){.due-banner-in{animation:none}}
 </style>
 </head>
 <body data-tab="timer">
@@ -403,6 +425,13 @@ li.editing .t-go{display:none}
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <header class="topbar">
+  <div class="due-banner" id="dueBanner" hidden>
+    <button class="due-banner-in" id="dueBannerBtn" type="button" aria-label="마감 임박 항목 보기">
+      <span class="ico" aria-hidden="true">⏰</span>
+      <span class="bd"><span class="t1" id="dueBannerT1">마감 임박</span><span class="t2" id="dueBannerT2">—</span></span>
+      <span class="left" id="dueBannerLeft">—</span>
+    </button>
+  </div>
   <div class="topbar-in">
     <div>
       <div class="eyebrow">FIRSTFIT PILATES</div>
@@ -1101,6 +1130,202 @@ function durLabel(sec){
 function minsLabel(ms){ return ms ? durLabel(Math.round(ms/1000)) : ""; }
 
 /* =========================================================
+   폰 알람 (.ics · 아이폰 캘린더 알람)
+   ========================================================= */
+function pad2(n){ return (n < 10 ? "0" : "") + n; }
+function icsLocal(d){
+  return d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate()) + "T" +
+    pad2(d.getHours()) + pad2(d.getMinutes()) + "00";
+}
+function icsUtc(d){
+  return d.getUTCFullYear() + pad2(d.getUTCMonth()+1) + pad2(d.getUTCDate()) + "T" +
+    pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()) + pad2(d.getUTCSeconds()) + "Z";
+}
+function icsEsc(s){
+  return String(s == null ? "" : s)
+    .replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+function icsAlarm(desc, trigger){
+  return ["BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:" + icsEsc(desc),
+    "TRIGGER:" + trigger, "END:VALARM"];
+}
+function icsFold(line){
+  line = String(line);
+  if(line.length <= 73) return line;
+  var out = [line.slice(0, 73)], rest = line.slice(73);
+  while(rest.length > 72){ out.push(" " + rest.slice(0, 72)); rest = rest.slice(72); }
+  if(rest.length) out.push(" " + rest);
+  return out.join("\r\n");
+}
+function buildIcs(events){
+  var L = ["BEGIN:VCALENDAR", "VERSION:2.0",
+    "PRODID:-//FirstFit Pilates//Routine Timer//KO", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  events.forEach(function(ev){ L = L.concat(ev); });
+  L.push("END:VCALENDAR");
+  return L.map(icsFold).join("\r\n") + "\r\n";
+}
+function saveIcs(filename, text){
+  try{
+    var blob = new Blob([text], { type:"text/calendar;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename; a.rel = "noopener";
+    a.style.position = "fixed"; a.style.left = "-9999px"; a.style.top = "0";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){
+      try{ if(a.parentNode) a.parentNode.removeChild(a); URL.revokeObjectURL(url); }catch(e){}
+    }, 4000);
+    return true;
+  }catch(e){ return false; }
+}
+function icsFileName(prefix, d, extra){
+  return "firstfit-" + prefix + "-" + d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate()) +
+    "-" + pad2(d.getHours()) + pad2(d.getMinutes()) + (extra || "") + ".ics";
+}
+function dueDateOf(dk, time){
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(time || "").trim());
+  if(!m) return null;
+  var d = parseKey(dk);
+  d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  return d;
+}
+
+/* 오늘만 할 일 · 마감 알람 (1시간 전 + 정시) */
+function taskAlarm(id, dk){
+  var t = findTask(id);
+  if(!t) return;
+  dk = dk || TODAY_KEY;
+  var due = dueDateOf(dk, t.time);
+  if(!due){ toast("알람을 만들 수 없어요", "마감 시간이 ‘시:분’ 형식이어야 해요.", "⚠️"); return; }
+  var goal = t.goalId ? goalById(t.goalId) : null;
+  var ev = ["BEGIN:VEVENT",
+    "UID:ff-task-" + t.id + "-" + dk + "@firstfit-timer",
+    "DTSTAMP:" + icsUtc(new Date()),
+    "DTSTART:" + icsLocal(due),
+    "DTEND:" + icsLocal(new Date(due.getTime() + 15 * 60000)),
+    "SUMMARY:" + icsEsc("마감 · " + t.text),
+    "DESCRIPTION:" + icsEsc("퍼스트핏 루틴 타이머" +
+      (CATS[t.cat] ? " · " + CATS[t.cat].label : "") +
+      (goal ? " · 목표 " + goal.title : "") + " · 마감 " + t.time),
+    "TRANSP:TRANSPARENT"];
+  ev = ev.concat(icsAlarm("1시간 뒤 마감 · " + t.text, "-PT60M"));
+  ev = ev.concat(icsAlarm("지금 마감 · " + t.text, "PT0M"));
+  ev.push("END:VEVENT");
+  if(!saveIcs(icsFileName("due", due), buildIcs([ev]))){
+    toast("알람 파일을 못 만들었어요", "브라우저의 다운로드 차단을 풀어 주세요.", "⚠️");
+    return;
+  }
+  if(due.getTime() < Date.now()){
+    toast("알람 파일은 만들었어요", "이미 지난 마감이라 울리지 않아요. 다음 마감부터 써 주세요.", "🔔");
+  }else{
+    toast("알람 2개를 담았어요", "마감 1시간 전·정시. 받은 파일에서 ‘캘린더에 추가’를 누르면 돼요.", "🔔");
+  }
+}
+
+/* 목표 · 마감일과 7일 반복 알람 */
+function goalDeadline(g){
+  var now = new Date();
+  if(g.term === "month") return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 0);
+  if(g.term === "year") return new Date(now.getFullYear(), 11, 31, 23, 59, 0);
+  return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate(), 23, 59, 0);
+}
+function goalTermLabel(g){
+  if(g.term === "month") return "이번 달 말";
+  if(g.term === "year") return "올해 말";
+  return "1년 뒤";
+}
+function nextNineAM(){
+  var now = new Date();
+  var d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0);
+  if(d.getTime() <= now.getTime()) d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+  return d;
+}
+function goalDeadlineEvent(g, deadline){
+  var ev = ["BEGIN:VEVENT",
+    "UID:ff-goal-" + g.id + "-deadline@firstfit-timer",
+    "DTSTAMP:" + icsUtc(new Date()),
+    "DTSTART:" + icsLocal(deadline),
+    "DTEND:" + icsLocal(new Date(deadline.getTime() + 15 * 60000)),
+    "SUMMARY:" + icsEsc("🎯 " + g.title + " · 마감"),
+    "DESCRIPTION:" + icsEsc("퍼스트핏 루틴 타이머 · " + goalTermLabel(g) + " 마감"),
+    "TRANSP:TRANSPARENT"];
+  ev = ev.concat(icsAlarm("1시간 뒤 마감 · " + g.title, "-PT60M"));
+  ev = ev.concat(icsAlarm("지금 마감 · " + g.title, "PT0M"));
+  ev.push("END:VEVENT");
+  return ev;
+}
+function goalWeeklyAlarm(g){
+  var start = nextNineAM();
+  var deadline = goalDeadline(g);
+  var until = deadline.getTime() > start.getTime() ? deadline : start;
+  var wk = ["BEGIN:VEVENT",
+    "UID:ff-goal-" + g.id + "-weekly@firstfit-timer",
+    "DTSTAMP:" + icsUtc(new Date()),
+    "DTSTART:" + icsLocal(start),
+    "DTEND:" + icsLocal(new Date(start.getTime() + 30 * 60000)),
+    "SUMMARY:" + icsEsc("🎯 " + g.title + " · 주간 점검"),
+    "DESCRIPTION:" + icsEsc("퍼스트핏 루틴 타이머 · 7일마다 오전 9시 점검 · " + goalTermLabel(g) + "까지"),
+    "RRULE:FREQ=WEEKLY;INTERVAL=1;UNTIL=" + icsLocal(until),
+    "TRANSP:TRANSPARENT"];
+  wk = wk.concat(icsAlarm("7일 점검 · " + g.title, "PT0M"));
+  wk.push("END:VEVENT");
+  if(!saveIcs(icsFileName("goal-weekly", start, "-" + g.id), buildIcs([wk, goalDeadlineEvent(g, deadline)]))){
+    toast("알람 파일을 못 만들었어요", "브라우저의 다운로드 차단을 풀어 주세요.", "⚠️");
+    return;
+  }
+  toast("7일마다 · 마감 알람을 담았어요",
+    "7일마다 오전 9시 점검, " + goalTermLabel(g) + " 마감 1시간 전·정시에 울려요.", "🔔");
+}
+function goalDeadlineAlarm(g){
+  var deadline = goalDeadline(g);
+  if(!saveIcs(icsFileName("goal-due", deadline, "-" + g.id), buildIcs([goalDeadlineEvent(g, deadline)]))){
+    toast("알람 파일을 못 만들었어요", "브라우저의 다운로드 차단을 풀어 주세요.", "⚠️");
+    return;
+  }
+  toast("목표 마감 알람을 담았어요", goalTermLabel(g) + " 1시간 전·정시. 받은 파일에서 ‘캘린더에 추가’를 눌러주세요.", "🔔");
+}
+
+/* 앱 안 마감 임박 배너 */
+function dueSoonList(){
+  var now = new Date();
+  var ch = checksForDk(TODAY_KEY);
+  var out = [];
+  dayItems(TODAY_IDX).forEach(function(t){
+    if(!t.due || ch[t.id]) return;
+    var d = dueDateOf(TODAY_KEY, t.time);
+    if(!d) return;
+    var left = Math.round((d.getTime() - now.getTime()) / 60000);
+    if(left > 60 || left < -90) return;
+    out.push({ t: t, left: left });
+  });
+  out.sort(function(a, b){ return a.left - b.left; });
+  return out;
+}
+function renderDueBanner(){
+  var box = document.getElementById("dueBanner");
+  if(!box) return;
+  var list = dueSoonList();
+  if(!list.length){ box.hidden = true; return; }
+  var it = list[0], left = it.left;
+  box.hidden = false;
+  box.classList.toggle("hot", left <= 15);
+  document.getElementById("dueBannerT1").textContent =
+    (left < 0 ? "마감 지남" : "마감 임박") + (list.length > 1 ? " · " + list.length + "건" : "");
+  document.getElementById("dueBannerT2").textContent = it.t.text + " · ~" + it.t.time + "까지";
+  document.getElementById("dueBannerLeft").textContent =
+    left > 1 ? left + "분 남음" : (left >= 0 ? "지금 마감" : Math.abs(left) + "분 지남");
+}
+document.getElementById("dueBannerBtn").addEventListener("click", function(){
+  if(!document.getElementById("viewTimer")) return;
+  setTab("timer");
+  var c = document.getElementById("todayCard");
+  if(c && c.scrollIntoView){ try{ c.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){ c.scrollIntoView(); } }
+});
+setInterval(renderDueBanner, 30000);
+
+/* =========================================================
    토스트 · 사운드 · 화면잠금
    ========================================================= */
 function toast(title, body, icon){
@@ -1433,6 +1658,7 @@ function openWakeSheet(dk){
    ========================================================= */
 function renderToday(){
   var d = dateForWeekday(TODAY_IDX);
+  renderDueBanner();
   document.getElementById("todayLabel").innerHTML = "<b>" + (d.getMonth()+1) + "월 " + d.getDate() + "일</b>" + DAYS[TODAY_IDX].name;
   document.getElementById("todaySub").textContent = DAYS[TODAY_IDX].theme;
   var list = orderedItems(TODAY_IDX);
@@ -1455,10 +1681,13 @@ function renderToday(){
     var when = t.due
       ? '<span class="due-tag' + (past ? " past" : "") + '">~' + esc(t.time) + '까지</span>'
       : esc(t.time);
+    var bell = (t.due && /^\d{1,2}:\d{2}$/.test(String(t.time || "")))
+      ? '<button class="bell-btn" data-act="alarm" aria-label="폰 알람 등록" title="폰 캘린더 알람">🔔 알람</button>' : '';
     return '<li data-id="' + t.id + '">' +
       '<button class="check" data-act="toggle" role="checkbox" aria-checked="false" aria-label="완료 체크">' +
         '<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"></path></svg></button>' +
       '<div class="txt">' + esc(t.text) + '<small class="' + (past ? "past" : "") + '">' + when + ' · ' + CATS[t.cat].label + '</small></div>' +
+      bell +
       '<button class="go ' + (state.focusId === t.id ? "on" : "") + '" data-act="focus" aria-label="이 항목 집중하기">' +
         (state.focusId === t.id ? "◉" : "◎") + '</button></li>';
   }).join("") + (rest.length > show.length
@@ -1471,6 +1700,7 @@ document.getElementById("todayList").addEventListener("click", function(e){
   var li = btn.closest("li[data-id]");
   if(!li) return;
   if(btn.dataset.act === "toggle") toggleTask(TODAY_IDX, li.dataset.id);
+  else if(btn.dataset.act === "alarm") taskAlarm(li.dataset.id, TODAY_KEY);
   else setFocus(li.dataset.id);
 });
 document.getElementById("focusLine").addEventListener("click", openFocusSheet);
@@ -1550,6 +1780,8 @@ function renderTasks(){
         '<button class="icon-btn" data-act="edit" aria-label="수정"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16v4z"></path></svg></button>' +
         '<button class="icon-btn del" data-act="del" aria-label="삭제"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button>' +
       '</div>' +
+      (t.due && /^\d{1,2}:\d{2}$/.test(String(t.time || ""))
+        ? '<button class="bell-btn" data-act="alarm" aria-label="폰 알람 등록" title="폰 캘린더 알람">🔔 알람</button>' : '') +
       '<button class="t-go ' + (state.focusId === t.id ? "on" : "") + '" data-act="focus" aria-label="이 항목 집중하기">' +
         (state.focusId === t.id ? "◉" : "◎") + '</button></li>';
   });
@@ -1563,6 +1795,7 @@ document.getElementById("taskList").addEventListener("click", function(e){
   var id = li.dataset.id, act = btn.dataset.act;
   if(act === "toggle") toggleTask(ui.day, id);
   else if(act === "focus") setFocus(id);
+  else if(act === "alarm") taskAlarm(id, dateKey(dateForWeekday(ui.day)));
   else if(act === "edit") openTaskSheet(findTask(id));
   else if(act === "del") deleteTask(id);
 });
@@ -1656,6 +1889,8 @@ function renderGoals(){
         + (life.ms ? ' · 집중 ' + minsLabel(life.ms) : '') + '</div>' +
       '<div class="goal-actions">' +
         '<button data-goal-act="link">+ 이 목표를 위한 오늘 루틴 추가</button>' +
+        '<button data-goal-act="weekly">🔔 7일마다 알람</button>' +
+        '<button data-goal-act="alarm">🔔 폰 알람</button>' +
         '<button data-goal-act="del">삭제</button></div></div>';
   }).join("");
 }
@@ -1678,6 +1913,8 @@ document.getElementById("goalList").addEventListener("click", function(e){
   if(!g) return;
   if(b.dataset.goalAct === "edit") openGoalSheet(g);
   else if(b.dataset.goalAct === "del") deleteGoal(g);
+  else if(b.dataset.goalAct === "weekly") goalWeeklyAlarm(g);
+  else if(b.dataset.goalAct === "alarm") goalDeadlineAlarm(g);
   else if(b.dataset.goalAct === "link"){ ui.day = TODAY_IDX; openTaskSheet(null, g.id); }
 });
 document.getElementById("addGoal").addEventListener("click", function(){ openGoalSheet(null); });
