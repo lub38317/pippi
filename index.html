@@ -64,6 +64,9 @@ ul{padding:0;list-style:none}
 .topbar-in{max-width:430px;margin:0 auto;padding:0 18px 8px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 .eyebrow{font-size:9.5px;letter-spacing:.2em;color:var(--muted);font-weight:600}
 .app-title{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.25;margin-top:3px}
+.top-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none}
+.photo-link{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:800;letter-spacing:-.01em;color:var(--teal);background:var(--teal-soft);border:1px solid #d3e4ea;border-radius:999px;padding:4px 9px;text-decoration:none;white-space:nowrap;line-height:1.2}
+.photo-link:active{background:#dcecf1}
 .today{text-align:right;font-size:12px;color:var(--sub);line-height:1.35;padding-bottom:2px}
 .today b{display:block;color:var(--ink);font-weight:600;font-size:13px}
 .seg{max-width:430px;margin:4px auto 0;padding:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:3px;background:#e9eef0;border-radius:14px}
@@ -441,7 +444,10 @@ li.editing .bell-btn{display:none}
       <div class="eyebrow">FIRSTFIT PILATES</div>
       <h1 class="app-title">루틴 · 타이머</h1>
     </div>
-    <div class="today" id="todayLabel"></div>
+    <div class="top-right">
+      <a class="photo-link" href="./photo.html">📸 사진 편집</a>
+      <div class="today" id="todayLabel"></div>
+    </div>
   </div>
   <div class="seg-wrap">
     <div class="seg" role="tablist" aria-label="화면 선택">
